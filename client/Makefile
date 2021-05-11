@@ -4,7 +4,7 @@ CFLAGS=-Wall -g
 all: program rename clean
 
 program: client.o helper.o
-	$(CC) $(CFLAGS) client.o helper.o
+	$(CC) $(CFLAGS) -lm client.o helper.o
 
 client.o: client.c
 	$(CC) $(CFLAGS) -c client.c

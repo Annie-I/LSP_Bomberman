@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <math.h>
 
 #include "../functions/client_functions.h"
 #include "../types/packets.h"
@@ -37,6 +38,7 @@ int main() {
   map.width = 0;
   map.height = 0;
   map.blocks = NULL;
+  objects = NULL;
 
   connect_to_server();
   join_game();
@@ -54,9 +56,13 @@ int main() {
 
         if (!compare_checksum(message, message_size, message[message_size])) {
           // TODO: Retry join packet
-          puts("Checksum mismatch, discarding packet");
+          #if DEBUG
+            puts("Checksum mismatch, discarding packet");
+          #endif
         } else {
-          puts("Checksum matched");
+          #if DEBUG
+            puts("Checksum matched");
+          #endif
           // Get size without start symbol, packet type, data length
           size_t header_size = sizeof(unsigned short) + sizeof(unsigned char) + sizeof(unsigned int);
 
@@ -75,6 +81,7 @@ int main() {
   }
 
   free(map.blocks);
+  free(objects);
   close(socket_FD);
 
   return 0;
@@ -152,6 +159,7 @@ int get_server_port() {
 void exit_program() {
   close(socket_FD);
   free(map.blocks);
+  free(objects);
   exit(1);
 }
 
@@ -324,6 +332,10 @@ void handle_server_id_packet(char *packet, int size) {
   memcpy((void *) &id, (void *) packet + 1, sizeof(int));
 
   if (id > 0) {
+    #if DEBUG
+      puts("Successfully joined server game");
+    #endif
+
     player.id = id;
 
     return;
@@ -357,36 +369,38 @@ void handle_server_map_packet(char *packet, int size) {
 }
 
 void handle_server_objects_packet(char *packet, int size) {
-  movable_object_data_t object;
-  int object_size = sizeof(object.type_id) + sizeof(object.id)
-                  + sizeof(object.x) + sizeof(object.y)
-                  + sizeof(object.direction) + sizeof(object.status);
+  free(objects);
 
   int count = packet[0];
   object_count = count;
 
-  int i;
+  printf(":D %d\n", object_count);
+
+  objects = (movable_object_data_t *) malloc (sizeof(movable_object_data_t) * object_count);
+
+  movable_object_data_t obj;
   int offset = 1;
+  int i;
   for (i = 0; i < count; i++) {
-    object.type_id = packet[offset];
-    offset += sizeof(object.type_id);
+    obj.type_id = packet[offset];
+    offset += sizeof(obj.type_id);
 
-    memcpy((void *) &object.id, packet + offset, sizeof(object.id));
-    offset += sizeof(object.id);
+    memcpy((void *) &obj.id, packet + offset, sizeof(obj.id));
+    offset += sizeof(obj.id);
 
-    memcpy((void *) &object.x, packet + offset, sizeof(object.x));
-    offset += sizeof(object.x);
+    memcpy((void *) &obj.x, packet + offset, sizeof(obj.x));
+    offset += sizeof(obj.x);
 
-    memcpy((void *) &object.y, packet + offset, sizeof(object.y));
-    offset += sizeof(object.y);
+    memcpy((void *) &obj.y, packet + offset, sizeof(obj.y));
+    offset += sizeof(obj.y);
 
-    object.direction = packet[offset];
-    offset += sizeof(object.direction);
+    obj.direction = packet[offset];
+    offset += sizeof(obj.direction);
 
-    object.status = packet[offset];
-    offset += sizeof(object.status);
+    obj.status = packet[offset];
+    offset += sizeof(obj.status);
 
-    // objects[i] = object;
+    objects[i] = obj;
   }
 
   render_game();
@@ -433,23 +447,59 @@ void draw_block(char block) {
   }
 }
 
+void draw_object(char object_type) {
+  switch(object_type) {
+    case MOVABLE_OBJECT_PLAYER:
+      // TODO: Get the actual color of given player
+      printf("$");
+      break;
+    case MOVABLE_OBJECT_BOMB:
+      printf("!");
+      break;
+    default:
+      puts("Cannot draw unknown object type");
+  }
+}
+
 void render_game() {
-  puts("Rendering game");
+  printf("Rendering game with %d objects\n", object_count);
+
   int x;
   int y;
   int index = 0;
+  for (y = 1; y <= map.height; y++) {
+    for (x = 1; x <= map.width; x++) {
+      unsigned char obj_type_id = find_object_in_coords(x, y);
 
-  print_bytes(map.blocks, map.width * map.height);
-  for (y = 0; y < map.height; y++) {
-    for (x = 0; x < map.width; x++) {
-      // map[index] = packet[]
-      draw_block(map.blocks[index]);
+      if (obj_type_id == 0xff) {
+        draw_block(map.blocks[index]);
+      } else {
+        draw_object(obj_type_id);
+      }
 
-      if (x + 1 == map.width) {
+      if (x == map.width) {
         printf("\n");
       }
 
       index++;
     }
   }
+}
+
+unsigned char find_object_in_coords(int x, int y) {
+  if (object_count == 0) {
+    return 0xff;
+  }
+
+  int i;
+  for (i = 0; i < object_count; i++) {
+    int obj_x = (int) roundf(objects[i].x);
+    int obj_y = (int) roundf(objects[i].y);
+
+    if (x == obj_x && y == obj_y) {
+      return objects[i].type_id;
+    }
+  }
+
+  return 0xff;
 }

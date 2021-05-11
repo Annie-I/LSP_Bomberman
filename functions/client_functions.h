@@ -20,7 +20,9 @@ int get_player_id_packet(char *, char[32], char);
 int get_ping_response_packet(char *);
 void send_packet(char *, int);
 void draw_block(char);
+void draw_object(char);
 void render_game();
+unsigned char find_object_in_coords(int, int);
 
 void exit_program();
 #endif
