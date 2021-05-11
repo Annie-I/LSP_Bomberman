@@ -10,7 +10,7 @@
 
 #include "../functions/server_functions.h"
 
-#define MAX_CLIENTS 255
+#define MAX_CLIENTS 10
 #define PORT 3000
 #define SHARED_MEMORY_SIZE 1024
 
@@ -65,7 +65,7 @@ void start_network(){
   if(client_socket<0){
    printf("Error accepting client connection! ERRNO=%d\n", errno); continue; }
   new_client_id = *client_count;
-  *client_count +-1;
+  *client_count +=1;
   cpid= fork();
   
   if(cpid==0){
@@ -84,7 +84,7 @@ void start_network(){
  }
 }
 }
-void process_client(int id, int socket);
+void process_client(int id, int socket){
  int i=0;
  char in[1];
  char out[100];
@@ -93,7 +93,7 @@ void process_client(int id, int socket);
  
  while(1){
   read(socket, in, 1);
-  if(in[0]>47&&in[0]<58{
+  if(in[0]>47&&in[0]<58){
    sprintf(out, "CLIENT %d SUM = %d\n", id, shared_data[MAX_CLIENTS+id]);
    write(socket, out, strlen(out));
    i = (int)in[0] -48;
@@ -101,7 +101,7 @@ void process_client(int id, int socket);
    shared_data[id]=i;
    }
   }
- 
+ }
 
 
 int main(){
