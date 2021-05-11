@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
+#include <pthread.h>
+#include <ncurses.h>
 
 #include "../functions/client_functions.h"
 #include "../types/packets.h"
@@ -12,12 +14,35 @@
 
 #define BUFFER_SIZE 1024
 #define PROTOCOL_VERSION 0x00
-#define DEBUG 1
+#define DEBUG 0
+
+typedef enum {
+  CHARACTER_EMPTY = 32,
+  CHARACTER_WALL = 35,
+  CHARACTER_BOX = 111,
+  CHARACTER_EXPLOSION = 64,
+  CHARACTER_POWER_UP_1 = 49,
+  CHARACTER_POWER_UP_2 = 50,
+  CHARACTER_POWER_UP_3 = 51,
+  CHARACTER_POWER_UP_4 = 52,
+  CHARACTER_PLAYER = 36,
+  CHARACTER_BOMB = 33
+} character_e;
+
+typedef enum {
+  BUTTON_UP = 119, // w
+  BUTTON_RIGHT = 100, // d
+  BUTTON_DOWN = 115, // s
+  BUTTON_LEFT = 97, // a
+  BUTTON_PLACE_BOMB = 32 // spacebar
+} button_e;
 
 typedef struct {
   char name[32];
   char color;
   unsigned int id;
+  int direction;
+  int is_placing_bomb;
 } player_t;
 
 typedef struct {
@@ -35,6 +60,8 @@ int object_count = 0;
 
 int main() {
   player.id = 0;
+  player.direction = 0;
+  player.is_placing_bomb = 0;
   map.width = 0;
   map.height = 0;
   map.blocks = NULL;
@@ -42,44 +69,28 @@ int main() {
 
   connect_to_server();
   join_game();
+  create_game_thread();
 
-  while(1) {
-    char message[BUFFER_SIZE];
-    int read_bytes = recv(socket_FD, message, BUFFER_SIZE, 0);
+  initscr();
+  cbreak();
+  noecho();
+  clear();
+  curs_set(0);
+  nonl();
+  intrflush(stdscr, 0);
+  keypad(stdscr, 1);
 
-    if (read_bytes > 0) {
-      // TODO: Should read entire message looking for packet_start
-      // For now assume that only correct messages are received and start is at beginning
-      if (message[0] == (char) 0xff && message[1] == (char) 0x00) {
-        int message_size = 0;
-        memcpy((void *) &message_size, message + 3, sizeof(unsigned int));
+  char button = getch();
+  int escape_button = 27;
 
-        if (!compare_checksum(message, message_size, message[message_size])) {
-          // TODO: Retry join packet
-          #if DEBUG
-            puts("Checksum mismatch, discarding packet");
-          #endif
-        } else {
-          #if DEBUG
-            puts("Checksum matched");
-          #endif
-          // Get size without start symbol, packet type, data length
-          size_t header_size = sizeof(unsigned short) + sizeof(unsigned char) + sizeof(unsigned int);
+  // Escape button
+  while (button != escape_button) {
+    handle_pressed_button(button);
 
-          unsigned char type = message[2];
-
-          int packet_data_size = message_size - header_size;
-          char packet_data[packet_data_size];
-          memcpy((void *) &packet_data, message + header_size, packet_data_size);
-          handle_packet(type, packet_data, packet_data_size);
-        }
-      }
-    } else {
-      puts("Socket error / connection closed");
-      exit_program();
-    }
+    button = getch();
   }
 
+  endwin();
   free(map.blocks);
   free(objects);
   close(socket_FD);
@@ -97,7 +108,7 @@ void connect_to_server() {
   if ((socket_FD = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     printf("Socket creation error\n");
 
-    exit(1);
+    exit_program();
   }
 
   server_address.sin_family = AF_INET;
@@ -107,13 +118,13 @@ void connect_to_server() {
   if(inet_pton(AF_INET, ip_address, &server_address.sin_addr) <= 0) {
     printf("Invalid or unsupported server address\n");
 
-    exit(1);
+    exit_program();
   }
 
   if (connect(socket_FD, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
     printf("Connection to server failed\n");
 
-    exit(1);
+    exit_program();
   }
 
   printf("Successfully connected to %s on port %i.\n", ip_address, port);
@@ -160,6 +171,7 @@ void exit_program() {
   close(socket_FD);
   free(map.blocks);
   free(objects);
+  endwin();
   exit(1);
 }
 
@@ -284,6 +296,71 @@ int get_ping_response_packet(char *buffer) {
   return size;
 }
 
+void send_player_input_packet() {
+  packet_header_t header;
+  player_input_data_t body;
+  char checksum;
+
+  unsigned int size = sizeof(header.start_symbol) + sizeof(header.type_id) + sizeof(header.data_length)
+                    + sizeof(body.x_movement) +sizeof(body.y_movement) + sizeof(body.is_placing_bomb)
+                    + sizeof(checksum);
+
+  char packet[size];
+  bzero(packet, size);
+
+  // Header
+  memcpy((void *) &header.start_symbol, packet_start, sizeof(packet_start));
+
+  header.type_id = (char) PACKET_TYPE_PLAYER_INPUT;
+
+  int data_length = size - sizeof(checksum);
+  memcpy((void *) &header.data_length, (void *) &data_length, sizeof(unsigned int));
+
+  // Body
+  body.x_movement = 0;
+  body.y_movement = 0;
+
+  if (player.direction == DIR_UP) {
+    body.y_movement = (char) 10;
+
+  } else if (player.direction == DIR_RIGHT) {
+    body.x_movement = (char) 20;
+  } else if (player.direction == DIR_DOWN) {
+    body.y_movement = (char) -45;
+  } else if (player.direction == DIR_LEFT) {
+    body.x_movement = (char) -95;
+  }
+
+  body.is_placing_bomb = player.is_placing_bomb;
+
+  int offset = 0;
+
+  memcpy((void *) &packet, (void *) &header.start_symbol, sizeof(header.start_symbol));
+  offset += sizeof(header.start_symbol);
+
+  memcpy((void *) &packet + offset, (void *) &header.type_id, sizeof(header.type_id));
+  offset += sizeof(header.type_id);
+
+  memcpy((void *) &packet + offset, (void *) &header.data_length, sizeof(header.data_length));
+  offset += sizeof(header.data_length);
+
+  memcpy((void *) &packet + offset, (void *) &body.x_movement, sizeof(body.x_movement));
+  offset += sizeof(body.x_movement);
+
+  memcpy((void *) &packet + offset, (void *) &body.y_movement, sizeof(body.y_movement));
+  offset += sizeof(body.y_movement);
+
+  memcpy((void *) &packet + offset, (void *) &body.is_placing_bomb, sizeof(body.is_placing_bomb));
+  offset += sizeof(body.is_placing_bomb);
+
+  checksum = calculate_checksum(packet, size - 1);
+  packet[offset] = checksum;
+
+  memcpy((void *) buffer, packet, size);
+
+  send_packet(buffer, size);
+}
+
 void send_packet(char *buffer, int length) {
   send(socket_FD, buffer, length, 0);
 }
@@ -374,8 +451,6 @@ void handle_server_objects_packet(char *packet, int size) {
   int count = packet[0];
   object_count = count;
 
-  printf(":D %d\n", object_count);
-
   objects = (movable_object_data_t *) malloc (sizeof(movable_object_data_t) * object_count);
 
   movable_object_data_t obj;
@@ -419,28 +494,28 @@ void handle_server_ping_packet() {
 void draw_block(char block) {
   switch(block) {
     case BLOCK_TYPE_EMPTY:
-      printf(" ");
+      addch(CHARACTER_EMPTY);
       break;
     case BLOCK_TYPE_WALL:
-      printf("#");
+      addch(CHARACTER_WALL);
       break;
     case BLOCK_TYPE_BOX:
-      printf("o");
+      addch(CHARACTER_BOX);
       break;
     case BLOCK_TYPE_EXPLOSION:
-      printf("@");
+      addch(CHARACTER_EXPLOSION);
       break;
     case BLOCK_TYPE_POWER_UP_1:
-      printf("1");
+      addch(CHARACTER_POWER_UP_1);
       break;
     case BLOCK_TYPE_POWER_UP_2:
-      printf("2");
+      addch(CHARACTER_POWER_UP_2);
       break;
     case BLOCK_TYPE_POWER_UP_3:
-      printf("3");
+      addch(CHARACTER_POWER_UP_3);
       break;
     case BLOCK_TYPE_POWER_UP_4:
-      printf("4");
+      addch(CHARACTER_POWER_UP_4);
       break;
     default:
       puts("Cannot draw unknown block type");
@@ -451,10 +526,10 @@ void draw_object(char object_type) {
   switch(object_type) {
     case MOVABLE_OBJECT_PLAYER:
       // TODO: Get the actual color of given player
-      printf("$");
+      addch(CHARACTER_PLAYER);
       break;
     case MOVABLE_OBJECT_BOMB:
-      printf("!");
+      addch(CHARACTER_BOMB);
       break;
     default:
       puts("Cannot draw unknown object type");
@@ -462,7 +537,11 @@ void draw_object(char object_type) {
 }
 
 void render_game() {
-  printf("Rendering game with %d objects\n", object_count);
+  #if DEBUG
+    printf("Rendering game with %d objects\n", object_count);
+  #endif
+
+  erase();
 
   int x;
   int y;
@@ -478,12 +557,14 @@ void render_game() {
       }
 
       if (x == map.width) {
-        printf("\n");
+        addch(10);
       }
 
       index++;
     }
   }
+
+  refresh();
 }
 
 unsigned char find_object_in_coords(int x, int y) {
@@ -502,4 +583,83 @@ unsigned char find_object_in_coords(int x, int y) {
   }
 
   return 0xff;
+}
+
+void create_game_thread() {
+  pthread_t input_thread;
+
+  if (pthread_create(&input_thread, NULL , game_thread_handler, NULL) < 0) {
+    puts("ERROR: Could not create the input thread");
+    exit_program();
+  }
+}
+
+void *game_thread_handler() {
+  while(1) {
+    char message[BUFFER_SIZE];
+    int read_bytes = recv(socket_FD, message, BUFFER_SIZE, 0);
+
+    if (read_bytes > 0) {
+      // TODO: Should read entire message looking for packet_start
+      // For now assume that only correct messages are received and start is at beginning
+      if (message[0] == (char) 0xff && message[1] == (char) 0x00) {
+        int message_size = 0;
+        memcpy((void *) &message_size, message + 3, sizeof(unsigned int));
+
+        if (!compare_checksum(message, message_size, message[message_size])) {
+          // TODO: Retry join packet
+          #if DEBUG
+            puts("Checksum mismatch, discarding packet");
+          #endif
+        } else {
+          #if DEBUG
+            puts("Checksum matched");
+          #endif
+          // Get size without start symbol, packet type, data length
+          size_t header_size = sizeof(unsigned short) + sizeof(unsigned char) + sizeof(unsigned int);
+
+          unsigned char type = message[2];
+
+          int packet_data_size = message_size - header_size;
+          char packet_data[packet_data_size];
+          memcpy((void *) &packet_data, message + header_size, packet_data_size);
+          handle_packet(type, packet_data, packet_data_size);
+        }
+      }
+    } else {
+      puts("Socket error / connection closed");
+      exit_program();
+    }
+  }
+
+  return NULL;
+}
+
+void handle_pressed_button(int button) {
+  int case_difference = 32;
+  // erase();
+  // addch(CHARACTER_BOMB);
+  // addch(CHARACTER_BOMB);
+  // addch(CHARACTER_BOMB);
+  // addch(CHARACTER_BOMB);
+  // addch(CHARACTER_BOMB);
+  // refresh();
+
+
+  if (button == BUTTON_UP || button == KEY_UP || button == BUTTON_UP - case_difference) {
+    player.direction = DIR_UP;
+  } else if (button == BUTTON_RIGHT || button == KEY_RIGHT || button == BUTTON_RIGHT - case_difference) {
+    player.direction = DIR_RIGHT;
+  } else if (button == BUTTON_DOWN || button == KEY_DOWN || button == BUTTON_DOWN - case_difference) {
+    player.direction = DIR_DOWN;
+  } else if (button == BUTTON_LEFT || button == KEY_LEFT || button == BUTTON_LEFT - case_difference) {
+    player.direction = DIR_LEFT;
+  } else if (button == BUTTON_PLACE_BOMB) {
+    player.is_placing_bomb = 1;
+  } else {
+    return;
+  }
+
+  send_player_input_packet();
+  player.is_placing_bomb = 0;
 }

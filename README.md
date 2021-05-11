@@ -8,3 +8,4 @@ To compile client you will need:
 
 - sudo apt install make
 - sudo apt install clang
+- sudo apt-get install libncurses5-dev libncursesw5-dev

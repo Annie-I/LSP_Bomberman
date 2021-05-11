@@ -18,11 +18,16 @@ void handle_server_ping_packet();
 
 int get_player_id_packet(char *, char[32], char);
 int get_ping_response_packet(char *);
+void send_player_input_packet();
 void send_packet(char *, int);
 void draw_block(char);
 void draw_object(char);
 void render_game();
 unsigned char find_object_in_coords(int, int);
+
+void create_game_thread();
+void *game_thread_handler();
+void handle_pressed_button(int);
 
 void exit_program();
 #endif

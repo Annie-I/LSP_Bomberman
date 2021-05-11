@@ -36,7 +36,7 @@ typedef struct {
 } player_id_data_t;
 
 typedef struct {
-  char x_movemet;
+  char x_movement;
   char y_movement;
   unsigned char is_placing_bomb;
 } player_input_data_t;
