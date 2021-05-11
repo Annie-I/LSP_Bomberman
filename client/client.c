@@ -19,15 +19,25 @@ typedef struct {
   unsigned int id;
 } player_t;
 
+typedef struct {
+  unsigned char width;
+  unsigned char height;
+  unsigned char *blocks;
+} map_t;
+
 int socket_FD = 0;
 char buffer[BUFFER_SIZE];
 player_t player;
-char *map;
-int map_size = 0;
+map_t map;
 movable_object_data_t *objects;
 int object_count = 0;
 
 int main() {
+  player.id = 0;
+  map.width = 0;
+  map.height = 0;
+  map.blocks = NULL;
+
   connect_to_server();
   join_game();
 
@@ -64,6 +74,7 @@ int main() {
     }
   }
 
+  free(map.blocks);
   close(socket_FD);
 
   return 0;
@@ -140,6 +151,7 @@ int get_server_port() {
 
 void exit_program() {
   close(socket_FD);
+  free(map.blocks);
   exit(1);
 }
 
@@ -331,20 +343,17 @@ void handle_server_map_packet(char *packet, int size) {
   int height = packet[1];
   int index = 2;
 
-  int x;
-  int y;
-  for (y = 0; y < height; y++) {
-    for (x = 0; x < width; x++) {
-      // map[index] = packet[]
-      draw_block(packet[index]);
+  if (width != map.width || height != map.height) {
+    free(map.blocks);
 
-      if (x + 1 == width) {
-        printf("\n");
-      }
-
-      index++;
-    }
+    map.width = width;
+    map.height = height;
+    map.blocks = (unsigned char *) malloc ((width * height)*sizeof(unsigned char));
   }
+
+  memcpy((void *) map.blocks, packet + index, width * height);
+
+  render_game();
 }
 
 void handle_server_objects_packet(char *packet, int size) {
@@ -375,6 +384,7 @@ void handle_server_objects_packet(char *packet, int size) {
     offset += sizeof(object.direction);
 
     object.status = packet[offset];
+    offset += sizeof(object.status);
 
     // objects[i] = object;
   }
@@ -425,4 +435,21 @@ void draw_block(char block) {
 
 void render_game() {
   puts("Rendering game");
+  int x;
+  int y;
+  int index = 0;
+
+  print_bytes(map.blocks, map.width * map.height);
+  for (y = 0; y < map.height; y++) {
+    for (x = 0; x < map.width; x++) {
+      // map[index] = packet[]
+      draw_block(map.blocks[index]);
+
+      if (x + 1 == map.width) {
+        printf("\n");
+      }
+
+      index++;
+    }
+  }
 }
