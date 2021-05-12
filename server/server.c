@@ -4,6 +4,10 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "../functions/server_functions.h"
+#include "../types/objects.h"
+#include "../types/packets.h"
+
 int main (int argc, char *argv[])
 {
  int socket_desc, client_sock, c, read_size;
