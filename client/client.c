@@ -17,16 +17,17 @@
 #define DEBUG 0
 
 typedef enum {
-  CHARACTER_EMPTY = 32,
-  CHARACTER_WALL = 35,
-  CHARACTER_BOX = 111,
-  CHARACTER_EXPLOSION = 64,
-  CHARACTER_POWER_UP_1 = 49,
-  CHARACTER_POWER_UP_2 = 50,
-  CHARACTER_POWER_UP_3 = 51,
-  CHARACTER_POWER_UP_4 = 52,
-  CHARACTER_PLAYER = 36,
-  CHARACTER_BOMB = 33
+  CHARACTER_EMPTY = 32, //space
+  CHARACTER_WALL = 35, //#
+  CHARACTER_BOX = 111, //o
+  CHARACTER_EXPLOSION = 64, //@
+  CHARACTER_POWER_UP_1 = 49, //1
+  CHARACTER_POWER_UP_2 = 50, //2
+  CHARACTER_POWER_UP_3 = 51, //3
+  CHARACTER_POWER_UP_4 = 52, //4
+  CHARACTER_PLAYER = 36, //$
+  CHARACTER_BOMB = 33, //!
+  CHARACTER_NEW_LINE = 10  //\n
 } character_e;
 
 typedef enum {
@@ -34,7 +35,8 @@ typedef enum {
   BUTTON_RIGHT = 100, // d
   BUTTON_DOWN = 115, // s
   BUTTON_LEFT = 97, // a
-  BUTTON_PLACE_BOMB = 32 // spacebar
+  BUTTON_PLACE_BOMB = 32, // space
+  BUTTON_ESC = 27 //escape
 } button_e;
 
 typedef struct {
@@ -71,6 +73,7 @@ int main() {
   join_game();
   create_game_thread();
 
+  /* For ncurses */
   initscr();
   cbreak();
   noecho();
@@ -79,12 +82,11 @@ int main() {
   nonl();
   intrflush(stdscr, 0);
   keypad(stdscr, 1);
+  /* --- */
 
   char button = getch();
-  int escape_button = 27;
 
-  // Escape button
-  while (button != escape_button) {
+  while (button != BUTTON_ESC) {
     handle_pressed_button(button);
 
     button = getch();
@@ -175,6 +177,7 @@ void exit_program() {
   exit(1);
 }
 
+/* Ask for player input and save it in player struct */
 void get_player_data(char name[32], char *color) {
   #if DEBUG
     strcpy(name, "Player1");
@@ -190,20 +193,21 @@ void get_player_data(char name[32], char *color) {
   scanf(" %c", color);
 }
 
+/* Send packet with player name and color */
 void join_game() {
   get_player_data(player.name, &player.color);
 
-  int packet_size = get_player_id_packet(buffer, player.name, player.color);
+  int packet_size = get_player_id_packet();
 
   #if DEBUG
     puts("Sending ID packet");
   #endif
 
-  send_packet(buffer, packet_size);
+  send_packet(packet_size);
 }
 
-/* Writes player identification data into buffer and returns its length */
-int get_player_id_packet(char *buffer, char name[32], char color) {
+/* Write player identification data into buffer and return its length */
+int get_player_id_packet() {
   packet_header_t header;
   player_id_data_t body;
   char checksum;
@@ -215,7 +219,7 @@ int get_player_id_packet(char *buffer, char name[32], char color) {
   char packet[size];
   bzero(packet, size);
 
-  // Header
+  /* Header */
   memcpy((void *) &header.start_symbol, packet_start, sizeof(packet_start));
 
   header.type_id = (char) PACKET_TYPE_PLAYER_ID;
@@ -223,13 +227,13 @@ int get_player_id_packet(char *buffer, char name[32], char color) {
   int data_length = size - sizeof(checksum);
   memcpy((void *) &header.data_length, (void *) &data_length, sizeof(unsigned int));
 
-  // Body
+  /* Body */
   body.protocol_version = (char) PROTOCOL_VERSION;
 
   bzero(body.name, 32);
-  strcpy(body.name, name);
+  strcpy(body.name, player.name);
 
-  body.color = color;
+  body.color = player.color;
 
   int offset = 0;
 
@@ -259,7 +263,7 @@ int get_player_id_packet(char *buffer, char name[32], char color) {
   return size;
 }
 
-int get_ping_response_packet(char *buffer) {
+int get_ping_response_packet() {
   packet_header_t header;
   char checksum;
 
@@ -269,7 +273,7 @@ int get_ping_response_packet(char *buffer) {
   char packet[size];
   bzero(packet, size);
 
-  // Header
+  /* Header */
   memcpy((void *) &header.start_symbol, packet_start, sizeof(packet_start));
 
   header.type_id = (char) PACKET_TYPE_PING_RESPONSE;
@@ -308,7 +312,7 @@ void send_player_input_packet() {
   char packet[size];
   bzero(packet, size);
 
-  // Header
+  /* Header */
   memcpy((void *) &header.start_symbol, packet_start, sizeof(packet_start));
 
   header.type_id = (char) PACKET_TYPE_PLAYER_INPUT;
@@ -316,7 +320,7 @@ void send_player_input_packet() {
   int data_length = size - sizeof(checksum);
   memcpy((void *) &header.data_length, (void *) &data_length, sizeof(unsigned int));
 
-  // Body
+  /* Body */
   body.x_movement = 0;
   body.y_movement = 0;
 
@@ -326,9 +330,9 @@ void send_player_input_packet() {
   } else if (player.direction == DIR_RIGHT) {
     body.x_movement = (char) 20;
   } else if (player.direction == DIR_DOWN) {
-    body.y_movement = (char) -45;
+    body.y_movement = (char) -15;
   } else if (player.direction == DIR_LEFT) {
-    body.x_movement = (char) -95;
+    body.x_movement = (char) -25;
   }
 
   body.is_placing_bomb = player.is_placing_bomb;
@@ -358,13 +362,15 @@ void send_player_input_packet() {
 
   memcpy((void *) buffer, packet, size);
 
-  send_packet(buffer, size);
+  send_packet(size);
 }
 
-void send_packet(char *buffer, int length) {
+/* Send packet from buffer */
+void send_packet(int length) {
   send(socket_FD, buffer, length, 0);
 }
 
+/* Choose correct handler function according to given packet type */
 void handle_packet(unsigned char type, char *packet, int size) {
   #if DEBUG
     printf("Handling packet %02x of size %d\n", type, size);
@@ -399,9 +405,10 @@ void handle_packet(unsigned char type, char *packet, int size) {
   }
 }
 
+/* Compare client - server protocols and get player id */
 void handle_server_id_packet(char *packet, int size) {
   if (packet[0] != (char) PROTOCOL_VERSION) {
-    puts("Client and server use different protocols");
+    puts("Client and server are using different protocols");
     exit_program();
   }
 
@@ -427,10 +434,10 @@ void handle_server_id_packet(char *packet, int size) {
   exit_program();
 }
 
+/* Get / update the map*/
 void handle_server_map_packet(char *packet, int size) {
   int width = packet[0];
   int height = packet[1];
-  int index = 2;
 
   if (width != map.width || height != map.height) {
     free(map.blocks);
@@ -440,11 +447,15 @@ void handle_server_map_packet(char *packet, int size) {
     map.blocks = (unsigned char *) malloc ((width * height)*sizeof(unsigned char));
   }
 
-  memcpy((void *) map.blocks, packet + index, width * height);
+  /* If map size is the same, replace it's content with new data
+  *  2 to skip width and height
+  */
+  memcpy((void *) map.blocks, packet + 2, width * height);
 
   render_game();
 }
 
+/* Gets object count and array of movable objects */
 void handle_server_objects_packet(char *packet, int size) {
   free(objects);
 
@@ -481,14 +492,15 @@ void handle_server_objects_packet(char *packet, int size) {
   render_game();
 }
 
+/* Fill buffer with server ping response packet and send it*/
 void handle_server_ping_packet() {
-  int packet_size = get_ping_response_packet(buffer);
+  int packet_size = get_ping_response_packet();
 
   #if DEBUG
     puts("Sending PING RESPONSE packet");
   #endif
 
-  send_packet(buffer, packet_size);
+  send_packet(packet_size);
 }
 
 void draw_block(char block) {
@@ -536,6 +548,7 @@ void draw_object(char object_type) {
   }
 }
 
+/* Draw map + movable objects */
 void render_game() {
   #if DEBUG
     printf("Rendering game with %d objects\n", object_count);
@@ -557,7 +570,7 @@ void render_game() {
       }
 
       if (x == map.width) {
-        addch(10);
+        addch(CHARACTER_NEW_LINE);
       }
 
       index++;
@@ -567,6 +580,7 @@ void render_game() {
   refresh();
 }
 
+/* Search for objects in rounded x, y coords and return its type if found*/
 unsigned char find_object_in_coords(int x, int y) {
   if (object_count == 0) {
     return 0xff;
@@ -585,6 +599,7 @@ unsigned char find_object_in_coords(int x, int y) {
   return 0xff;
 }
 
+/* Create a thread that will handle received packets */
 void create_game_thread() {
   pthread_t input_thread;
 
@@ -600,14 +615,15 @@ void *game_thread_handler() {
     int read_bytes = recv(socket_FD, message, BUFFER_SIZE, 0);
 
     if (read_bytes > 0) {
-      // TODO: Should read entire message looking for packet_start
-      // For now assume that only correct messages are received and start is at beginning
+      /* TODO: Should read the entire message looking for packet_start
+      * For now assume that only correct messages are received and start is at beginning
+      */
       if (message[0] == (char) 0xff && message[1] == (char) 0x00) {
         int message_size = 0;
         memcpy((void *) &message_size, message + 3, sizeof(unsigned int));
 
         if (!compare_checksum(message, message_size, message[message_size])) {
-          // TODO: Retry join packet
+          /* TODO: Retry join packet */
           #if DEBUG
             puts("Checksum mismatch, discarding packet");
           #endif
@@ -637,14 +653,6 @@ void *game_thread_handler() {
 
 void handle_pressed_button(int button) {
   int case_difference = 32;
-  // erase();
-  // addch(CHARACTER_BOMB);
-  // addch(CHARACTER_BOMB);
-  // addch(CHARACTER_BOMB);
-  // addch(CHARACTER_BOMB);
-  // addch(CHARACTER_BOMB);
-  // refresh();
-
 
   if (button == BUTTON_UP || button == KEY_UP || button == BUTTON_UP - case_difference) {
     player.direction = DIR_UP;

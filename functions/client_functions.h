@@ -16,10 +16,10 @@ void handle_server_map_packet(char *, int);
 void handle_server_objects_packet(char *, int);
 void handle_server_ping_packet();
 
-int get_player_id_packet(char *, char[32], char);
-int get_ping_response_packet(char *);
+int get_player_id_packet();
+int get_ping_response_packet();
 void send_player_input_packet();
-void send_packet(char *, int);
+void send_packet(int);
 void draw_block(char);
 void draw_object(char);
 void render_game();

@@ -37,6 +37,7 @@ void print_bytes(void *packet, int count) {
 
 /*
   Packet and packet length WITHOUT checksum
+  Returns calculated checksum for passed packet
  */
 char calculate_checksum(void *packet, int length) {
   int i;
@@ -50,13 +51,14 @@ char calculate_checksum(void *packet, int length) {
   return checksum;
 }
 
-/* Return 1 if given checksum matches calculated checksum of given packet
- * else return 0
+/* Compares calculated checksum vs one in packet and returns
+ *  1 if they match
+ *  else return 0
  */
-int compare_checksum(void *packet, int length, char checksum) {
-  char c = calculate_checksum(packet, length);
+int compare_checksum(void *packet, int length, char sent_checksum) {
+  char calculated_checksum = calculate_checksum(packet, length);
 
-  if (c == checksum) {
+  if (calculated_checksum == sent_checksum) {
     return 1;
   }
 
