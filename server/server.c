@@ -18,17 +18,17 @@ int main (int argc, char *argv[])
  {
  printf("Could not create socket");
  }
- puts("Socket created");
+ puts("Socket has been created");
  server.sin_family = AF_INET;
  server.sin_addr.s_addr = INADDR_ANY;
  server.sin_port=htons(3000);
  
  if(bind(socket_desc, (struct sockaddr *)&server, sizeof(server))<0)
  {
- perror("bind failed. Error");
+ perror("Bind has failed. Error");
  return 1;
  }
- puts("bind done");
+ puts("Bind is done");
  
  listen(socket_desc, 3);
  
@@ -38,10 +38,10 @@ int main (int argc, char *argv[])
  client_sock = accept(socket_desc, (struct sockaddr *)&client, (socklen_t*)&c);
  if(client_sock<0)
  {
- perror("accept failed");
+ perror("Accept has failed");
  return 1;
  }
- puts("connection accepted");
+ puts("Connection has been accepted");
  
  while ((read_size=recv(client_sock, client_message, 2000, 0)) > 0)
  {
@@ -49,12 +49,12 @@ int main (int argc, char *argv[])
  }
  if(read_size==0)
  {
- puts("client disconnected");
+ puts("Client has disconnected");
  fflush(stdout);
  }
  else if(read_size == -1)
  {
- perror("recv failed");
+ perror("Receiving has failed");
  }
  return 0;
 }
@@ -68,7 +68,7 @@ char *message, client_message[2000];
 message="Hello\n";
 write(sock, message, strlen(message));
 
-message="Write something to server";
+message="Write something...";
 write(sock, message, strlen(message));
 
 while((read_size=recv(sock, client_message, 2000, 0))>0)
@@ -78,12 +78,12 @@ write(sock, client_message, strlen(client_message));
 
 if(read_size==0)
 {
-puts("Client disconnected");
+puts("Client has disconnected");
 fflush(stdout);
 }
 else if(read_size==-1)
 {
-perror("recv failed");
+perror("Receiving has failed");
 }
 free(socket_desc);
 return 0;
