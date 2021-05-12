@@ -84,7 +84,7 @@ int main() {
   keypad(stdscr, 1);
   /* --- */
 
-  char button = getch();
+  wchar_t button = getch();
 
   while (button != BUTTON_ESC) {
     handle_pressed_button(button);
